@@ -7,13 +7,13 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "opengl-zig",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     exe.linkLibC();
-    exe.addIncludePath(.{ .path = "include" });
+    exe.addIncludePath(b.path("include"));
     exe.addCSourceFile(.{ .file = b.path("include/glad/glad.c") });
     exe.linkSystemLibrary("glfw3");
 

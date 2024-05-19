@@ -13,10 +13,17 @@ pub fn main() !void {
         std.log.err("Failed to initialize GLFW", .{});
         return error.Initialization;
     }
-
     defer c.glfwTerminate();
 
     _ = c.glfwSetErrorCallback(errorCallback);
+
+    c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MAJOR, 3);
+    c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MINOR, 3);
+    c.glfwWindowHint(c.GLFW_OPENGL_PROFILE, c.GLFW_OPENGL_CORE_PROFILE);
+
+    //#ifdef __APPLE__
+    //    c.glfwWindowHint(c.GLFW_OPENGL_FORWARD_COMPAT, c.GLFW_TRUE);
+    //#endif
 
     const window = c.glfwCreateWindow(800, 600, "Hello, World", null, null) orelse {
         std.log.err("Failed to create window", .{});
@@ -37,23 +44,19 @@ pub fn main() !void {
 
     const vertex_shader_source: [*c]const u8 =
         \\#version 330 core
+        \\layout (location = 0) in vec3 aPos;
         \\void main()
         \\{
-        \\  const vec4 vertices[3] = vec4[](
-        \\    vec4( 0.0,  0.5, 1.0, 1.0),
-        \\    vec4(-0.5, -0.5, 1.0, 1.0),
-        \\    vec4( 0.5, -0.5, 1.0, 1.0)
-        \\  );
-        \\  gl_Position = vertices[gl_VertexID];
+        \\  gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
         \\} 
     ;
 
     const fragment_shader_source: [*c]const u8 =
         \\#version 330 core
-        \\out vec4 fragment;
+        \\out vec4 FragColor;
         \\void main()
         \\{
-        \\  fragment = vec4(1.0, 0.5, 0.2, 1.0);
+        \\  FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
         \\}
     ;
 
@@ -73,9 +76,44 @@ pub fn main() !void {
     c.glDeleteShader(vertex_shader);
     c.glDeleteShader(fragment_shader);
 
+    const vertices = [_]f32{
+        0.5,  0.5,  0.0,
+        0.5,  -0.5, 0.0,
+        -0.5, -0.5, 0.0,
+        -0.5, 0.5,  0.0,
+    };
+    const indices = [_]u32{
+        0, 1, 3,
+        1, 2, 3,
+    };
+    var VBO: u32 = undefined;
+    var VAO: u32 = undefined;
+    var EBO: u32 = undefined;
+
+    c.glGenVertexArrays(1, &VAO);
+    c.glGenBuffers(1, &VBO);
+    c.glGenBuffers(1, &EBO);
+
+    c.glBindVertexArray(VAO);
+
+    c.glBindBuffer(c.GL_ARRAY_BUFFER, VBO);
+    c.glBufferData(c.GL_ARRAY_BUFFER, @sizeOf(@TypeOf(vertices)), &vertices, c.GL_STATIC_DRAW);
+
+    c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, EBO);
+    c.glBufferData(c.GL_ELEMENT_ARRAY_BUFFER, @sizeOf(@TypeOf(indices)), &indices, c.GL_STATIC_DRAW);
+
+    c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 3 * @sizeOf(f32), null);
+    c.glEnableVertexAttribArray(0);
+
+    c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
+
+    c.glBindVertexArray(0);
+
+    c.glPolygonMode(c.GL_FRONT_AND_BACK, c.GL_LINE);
+
     while (c.glfwWindowShouldClose(window) == c.GLFW_FALSE) {
-        var width: c_int = 0;
-        var height: c_int = 0;
+        var width: c_int = undefined;
+        var height: c_int = undefined;
         c.glfwGetFramebufferSize(window, &width, &height);
         c.glViewport(0, 0, width, height);
 
@@ -83,7 +121,8 @@ pub fn main() !void {
         c.glClear(c.GL_COLOR_BUFFER_BIT);
 
         c.glUseProgram(shader_program);
-        c.glDrawArrays(c.GL_TRIANGLES, 0, 3);
+        c.glBindVertexArray(VAO);
+        c.glDrawElements(c.GL_TRIANGLES, 6, c.GL_UNSIGNED_INT, null);
 
         c.glfwSwapBuffers(window);
         c.glfwPollEvents();
