@@ -4,8 +4,26 @@ const c = @cImport({
     @cInclude("GLFW/glfw3.h");
 });
 
-fn errorCallback(err: c_int, description: [*c]const u8) callconv(.C) void {
+fn gl_error_callback(err: c_int, description: [*c]const u8) callconv(.C) void {
     std.log.err("GLFW error {d}: {s}", .{ err, description });
+}
+
+fn gl_debug_callback(
+    source: c.GLenum,
+    type_: c.GLenum,
+    id: c.GLuint,
+    severity: c.GLenum,
+    length: c.GLsizei,
+    message: [*c]const c.GLchar,
+    user_param: ?*const anyopaque,
+) callconv(.C) void {
+    _ = source;
+    _ = type_;
+    _ = severity;
+    _ = length;
+    _ = user_param;
+
+    std.log.err("OpenGL error {d}: {s}", .{ id, message });
 }
 
 pub fn main() !void {
@@ -15,7 +33,7 @@ pub fn main() !void {
     }
     defer c.glfwTerminate();
 
-    _ = c.glfwSetErrorCallback(errorCallback);
+    _ = c.glfwSetErrorCallback(gl_error_callback);
 
     c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MAJOR, 3);
     c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -34,29 +52,36 @@ pub fn main() !void {
 
     c.glfwMakeContextCurrent(window);
 
+    c.glfwSwapInterval(1);
+
     const loadproc: c.GLADloadproc = @ptrCast(&c.glfwGetProcAddress);
     if (c.gladLoadGLLoader(loadproc) == c.GL_FALSE) {
         std.log.err("Failed to load OpenGL", .{});
         return error.Initialization;
     }
 
-    c.glfwSwapInterval(1);
+    c.glDebugMessageCallback(gl_debug_callback, null);
+    c.glEnable(c.GL_DEBUG_OUTPUT);
 
     const vertex_shader_source: [*c]const u8 =
         \\#version 330 core
         \\layout (location = 0) in vec3 aPos;
+        \\layout (location = 1) in vec3 aColor;
+        \\out vec3 ourColor;
         \\void main()
         \\{
-        \\  gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
+        \\  gl_Position = vec4(aPos, 1.0);
+        \\  ourColor = aColor;
         \\} 
     ;
 
     const fragment_shader_source: [*c]const u8 =
-        \\#version 330 core
+        \\#version 460 core
         \\out vec4 FragColor;
-        \\void main()
-        \\{
-        \\  FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
+        \\in vec3 ourColor;
+        \\
+        \\void main() {
+        \\    FragColor = vec4(ourColor,1.0);
         \\}
     ;
 
@@ -77,10 +102,10 @@ pub fn main() !void {
     c.glDeleteShader(fragment_shader);
 
     const vertices = [_]f32{
-        0.5,  0.5,  0.0,
-        0.5,  -0.5, 0.0,
-        -0.5, -0.5, 0.0,
-        -0.5, 0.5,  0.0,
+        0.5,  0.5,  0.0, 1.0, 0.0, 0.0,
+        0.5,  -0.5, 0.0, 0.0, 1.0, 0.0,
+        -0.5, -0.5, 0.0, 0.0, 0.0, 1.0,
+        -0.5, 0.5,  0.0, 1.0, 1.0, 0.0,
     };
     const indices = [_]u32{
         0, 1, 3,
@@ -102,14 +127,17 @@ pub fn main() !void {
     c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, EBO);
     c.glBufferData(c.GL_ELEMENT_ARRAY_BUFFER, @sizeOf(@TypeOf(indices)), &indices, c.GL_STATIC_DRAW);
 
-    c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 3 * @sizeOf(f32), null);
+    c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
     c.glEnableVertexAttribArray(0);
+
+    c.glVertexAttribPointer(1, 3, c.GL_FLOAT, c.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
+    c.glEnableVertexAttribArray(1);
 
     c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
 
     c.glBindVertexArray(0);
 
-    c.glPolygonMode(c.GL_FRONT_AND_BACK, c.GL_LINE);
+    //c.glPolygonMode(c.GL_FRONT_AND_BACK, c.GL_LINE);
 
     while (c.glfwWindowShouldClose(window) == c.GLFW_FALSE) {
         var width: c_int = undefined;
