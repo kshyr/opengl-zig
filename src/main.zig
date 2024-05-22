@@ -2,7 +2,9 @@ const std = @import("std");
 const c = @cImport({
     @cInclude("glad/glad.h");
     @cInclude("GLFW/glfw3.h");
+    @cInclude("stb/stb_image.h");
 });
+const zigimg = @import("zigimg");
 
 fn gl_error_callback(err: c_int, description: [*c]const u8) callconv(.C) void {
     std.log.err("GLFW error {d}: {s}", .{ err, description });
@@ -27,6 +29,9 @@ fn gl_debug_callback(
 }
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
     if (c.glfwInit() == c.GLFW_FALSE) {
         std.log.err("Failed to initialize GLFW", .{});
         return error.Initialization;
@@ -67,11 +72,14 @@ pub fn main() !void {
         \\#version 330 core
         \\layout (location = 0) in vec3 aPos;
         \\layout (location = 1) in vec3 aColor;
+        \\layout (location = 2) in vec2 aTexCoord;
         \\out vec3 ourColor;
+        \\out vec2 TexCoord;
         \\void main()
         \\{
         \\  gl_Position = vec4(aPos, 1.0);
         \\  ourColor = aColor;
+        \\  TexCoord = aTexCoord;
         \\} 
     ;
 
@@ -79,9 +87,11 @@ pub fn main() !void {
         \\#version 460 core
         \\out vec4 FragColor;
         \\in vec3 ourColor;
+        \\in vec2 TexCoord;
+        \\uniform sampler2D ourTexture;
         \\
         \\void main() {
-        \\    FragColor = vec4(ourColor,1.0);
+        \\    FragColor = texture(ourTexture,TexCoord);
         \\}
     ;
 
@@ -101,11 +111,13 @@ pub fn main() !void {
     c.glDeleteShader(vertex_shader);
     c.glDeleteShader(fragment_shader);
 
+    // Set up vertex data (and buffer(s)) and attribute pointers
+
     const vertices = [_]f32{
-        0.5,  0.5,  0.0, 1.0, 0.0, 0.0,
-        0.5,  -0.5, 0.0, 0.0, 1.0, 0.0,
-        -0.5, -0.5, 0.0, 0.0, 0.0, 1.0,
-        -0.5, 0.5,  0.0, 1.0, 1.0, 0.0,
+        0.5,  0.5,  0.0, 1.0, 0.0, 0.0, 1.0, 1.0,
+        0.5,  -0.5, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0,
+        -0.5, -0.5, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+        -0.5, 0.5,  0.0, 1.0, 1.0, 0.0, 0.0, 1.0,
     };
     const indices = [_]u32{
         0, 1, 3,
@@ -127,15 +139,17 @@ pub fn main() !void {
     c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, EBO);
     c.glBufferData(c.GL_ELEMENT_ARRAY_BUFFER, @sizeOf(@TypeOf(indices)), &indices, c.GL_STATIC_DRAW);
 
-    c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
+    c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(0));
     c.glEnableVertexAttribArray(0);
 
-    c.glVertexAttribPointer(1, 3, c.GL_FLOAT, c.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
+    c.glVertexAttribPointer(1, 3, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
     c.glEnableVertexAttribArray(1);
 
-    c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
+    c.glVertexAttribPointer(2, 2, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(6 * @sizeOf(f32)));
+    c.glEnableVertexAttribArray(2);
 
-    c.glBindVertexArray(0);
+    // Load and create a texture
+    const texture = try loadTextureFromFile("./src/assets/wall.jpg");
 
     //c.glPolygonMode(c.GL_FRONT_AND_BACK, c.GL_LINE);
 
@@ -148,6 +162,8 @@ pub fn main() !void {
         c.glClearColor(0.2, 0.3, 0.3, 1.0);
         c.glClear(c.GL_COLOR_BUFFER_BIT);
 
+        c.glBindTexture(c.GL_TEXTURE_2D, texture);
+
         c.glUseProgram(shader_program);
         c.glBindVertexArray(VAO);
         c.glDrawElements(c.GL_TRIANGLES, 6, c.GL_UNSIGNED_INT, null);
@@ -155,4 +171,24 @@ pub fn main() !void {
         c.glfwSwapBuffers(window);
         c.glfwPollEvents();
     }
+}
+
+pub fn loadTextureFromFile(filePath: [*c]const u8) !c_uint {
+    var texture: c_uint = undefined;
+    c.glGenTextures(1, &texture);
+    c.glBindTexture(c.GL_TEXTURE_2D, texture);
+    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_REPEAT);
+    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_REPEAT);
+    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR_MIPMAP_LINEAR);
+    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_LINEAR);
+
+    var width: c_int = undefined;
+    var height: c_int = undefined;
+    var channels: c_int = undefined;
+
+    const data = c.stbi_load(filePath, &width, &height, &channels, 0);
+    c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGB, width, height, 0, c.GL_RGB, c.GL_UNSIGNED_BYTE, data);
+    c.glGenerateMipmap(c.GL_TEXTURE_2D);
+
+    return texture;
 }
