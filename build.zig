@@ -12,6 +12,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const ziglm = b.addModule("ziglm", .{ .root_source_file = .{ .path = "deps/ziglm/src/ziglm.zig" } });
+    exe.root_module.addImport("ziglm", ziglm);
+
     exe.linkLibC();
     exe.addIncludePath(.{ .path = "deps" });
     exe.addCSourceFile(.{ .file = .{ .path = ("deps/glad/glad.c") } });

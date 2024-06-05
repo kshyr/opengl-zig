@@ -18,8 +18,6 @@ pub fn init(
     const vertex_shader_source = try read_shader_file(allocator, vert_path);
     const fragment_shader_source = try read_shader_file(allocator, frag_path);
 
-    std.debug.print("Compiling vertex shader: {s} \n", .{vertex_shader_source});
-
     var vertex_shader: c.GLuint = undefined;
     var fragment_shader: c.GLuint = undefined;
 
@@ -51,17 +49,17 @@ pub fn use(self: *Shader) void {
     c.glUseProgram(self.id);
 }
 
-pub fn setBool(self: *Shader, name: []const u8, value: bool) void {
+pub fn setBool(self: *Shader, name: [*c]const u8, value: bool) void {
     const location = c.glGetUniformLocation(self.id, name);
     c.glUniform1i(location, @intFromBool(value));
 }
 
-pub fn setInt(self: *Shader, name: []const u8, value: c.GLint) void {
+pub fn setInt(self: *Shader, name: [*c]const u8, value: c.GLint) void {
     const location = c.glGetUniformLocation(self.id, name);
-    c.glUniform1i(location, @intFromBool(value));
+    c.glUniform1i(location, value);
 }
 
-pub fn setFloat(self: *Shader, name: []const u8, value: c.GLfloat) void {
+pub fn setFloat(self: *Shader, name: [*c]const u8, value: c.GLfloat) void {
     const location = c.glGetUniformLocation(self.id, name);
     c.glUniform1f(location, value);
 }

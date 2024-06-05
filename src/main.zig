@@ -4,8 +4,10 @@ const c = @cImport({
     @cInclude("GLFW/glfw3.h");
     @cInclude("stb/stb_image.h");
 });
-const zigimg = @import("zigimg");
+const glm = @import("ziglm");
 const Shader = @import("Shader.zig");
+
+const print = std.debug.print;
 
 fn gl_error_callback(err: c_int, description: [*c]const u8) callconv(.C) void {
     std.log.err("GLFW error {d}: {s}", .{ err, description });
@@ -109,12 +111,15 @@ pub fn main() !void {
     c.glVertexAttribPointer(2, 2, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(6 * @sizeOf(f32)));
     c.glEnableVertexAttribArray(2);
 
-    // Load and create a texture
-    const texture = try loadTextureFromFile("./src/assets/awesomeface.png");
+    const texture1 = try loadTextureFromFile("./src/assets/61uWMZtvquL._AC_UF894,1000_QL80_.jpg", .{ .v_flip = true });
+    const texture2 = try loadTextureFromFile("./src/assets/awesomeface.png", .{ .v_flip = true });
 
     //c.glPolygonMode(c.GL_FRONT_AND_BACK, c.GL_LINE);
 
     shader.use();
+    c.glUniform1i(c.glGetUniformLocation(shader.id, "texture1"), 0);
+    c.glUniform1i(c.glGetUniformLocation(shader.id, "texture2"), 1);
+    shader.setInt("texture2", 1);
 
     while (c.glfwWindowShouldClose(window) == c.GLFW_FALSE) {
         var width: c_int = undefined;
@@ -125,7 +130,10 @@ pub fn main() !void {
         c.glClearColor(0.2, 0.3, 0.3, 1.0);
         c.glClear(c.GL_COLOR_BUFFER_BIT);
 
-        c.glBindTexture(c.GL_TEXTURE_2D, texture);
+        c.glActiveTexture(c.GL_TEXTURE0);
+        c.glBindTexture(c.GL_TEXTURE_2D, texture1);
+        c.glActiveTexture(c.GL_TEXTURE1);
+        c.glBindTexture(c.GL_TEXTURE_2D, texture2);
 
         shader.use();
         c.glBindVertexArray(VAO);
@@ -135,22 +143,38 @@ pub fn main() !void {
         c.glfwPollEvents();
     }
 }
+fn cStringToSlice(cstr: [*c]const u8) []const u8 {
+    const length = std.mem.len(cstr); // Get the length of the C string
+    return cstr[0..length]; // Create a slice from the pointer and the length
+}
 
-pub fn loadTextureFromFile(filePath: [*c]const u8) !c_uint {
+const TextureLoadOptions = struct {
+    v_flip: ?bool = false,
+};
+
+pub fn loadTextureFromFile(filePath: [*c]const u8, options: TextureLoadOptions) !c_uint {
+    const file_path_slice = cStringToSlice(filePath);
+    const formati = if (std.mem.endsWith(u8, file_path_slice, ".png")) c.GL_RGBA else c.GL_RGB;
+    print("formati: {d}\n", .{formati});
+    const formatu: c_uint = @intCast(formati);
     var texture: c_uint = undefined;
     c.glGenTextures(1, &texture);
     c.glBindTexture(c.GL_TEXTURE_2D, texture);
     c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_REPEAT);
     c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_REPEAT);
-    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR_MIPMAP_LINEAR);
+    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR);
     c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_LINEAR);
 
     var width: c_int = undefined;
     var height: c_int = undefined;
     var channels: c_int = undefined;
 
+    if (options.v_flip.?) {
+        c.stbi_set_flip_vertically_on_load(c.GL_TRUE);
+    }
+
     const data = c.stbi_load(filePath, &width, &height, &channels, 0);
-    c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGBA, width, height, 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, data);
+    c.glTexImage2D(c.GL_TEXTURE_2D, 0, formati, width, height, 0, formatu, c.GL_UNSIGNED_BYTE, data);
     c.glGenerateMipmap(c.GL_TEXTURE_2D);
 
     return texture;
