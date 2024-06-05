@@ -13,9 +13,9 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
-    exe.addIncludePath(.{ .path = "include" });
-    exe.addCSourceFile(.{ .file = .{ .path = ("include/glad/glad.c") } });
-    exe.addCSourceFile(.{ .file = .{ .path = ("include/stb/stb_image.c") } });
+    exe.addIncludePath(.{ .path = "deps" });
+    exe.addCSourceFile(.{ .file = .{ .path = ("deps/glad/glad.c") } });
+    exe.addCSourceFile(.{ .file = .{ .path = ("deps/stb/stb_image.c") } });
     exe.linkSystemLibrary("glfw3");
 
     b.installArtifact(exe);

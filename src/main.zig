@@ -5,6 +5,7 @@ const c = @cImport({
     @cInclude("stb/stb_image.h");
 });
 const zigimg = @import("zigimg");
+const Shader = @import("Shader.zig");
 
 fn gl_error_callback(err: c_int, description: [*c]const u8) callconv(.C) void {
     std.log.err("GLFW error {d}: {s}", .{ err, description });
@@ -31,6 +32,7 @@ fn gl_debug_callback(
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
     if (c.glfwInit() == c.GLFW_FALSE) {
         std.log.err("Failed to initialize GLFW", .{});
@@ -68,48 +70,7 @@ pub fn main() !void {
     c.glDebugMessageCallback(gl_debug_callback, null);
     c.glEnable(c.GL_DEBUG_OUTPUT);
 
-    const vertex_shader_source: [*c]const u8 =
-        \\#version 330 core
-        \\layout (location = 0) in vec3 aPos;
-        \\layout (location = 1) in vec3 aColor;
-        \\layout (location = 2) in vec2 aTexCoord;
-        \\out vec3 ourColor;
-        \\out vec2 TexCoord;
-        \\void main()
-        \\{
-        \\  gl_Position = vec4(aPos, 1.0);
-        \\  ourColor = aColor;
-        \\  TexCoord = aTexCoord;
-        \\} 
-    ;
-
-    const fragment_shader_source: [*c]const u8 =
-        \\#version 460 core
-        \\out vec4 FragColor;
-        \\in vec3 ourColor;
-        \\in vec2 TexCoord;
-        \\uniform sampler2D ourTexture;
-        \\
-        \\void main() {
-        \\    FragColor = texture(ourTexture,TexCoord);
-        \\}
-    ;
-
-    const vertex_shader = c.glCreateShader(c.GL_VERTEX_SHADER);
-    c.glShaderSource(vertex_shader, 1, &vertex_shader_source, null);
-    c.glCompileShader(vertex_shader);
-
-    const fragment_shader = c.glCreateShader(c.GL_FRAGMENT_SHADER);
-    c.glShaderSource(fragment_shader, 1, &fragment_shader_source, null);
-    c.glCompileShader(fragment_shader);
-
-    const shader_program = c.glCreateProgram();
-    c.glAttachShader(shader_program, vertex_shader);
-    c.glAttachShader(shader_program, fragment_shader);
-    c.glLinkProgram(shader_program);
-
-    c.glDeleteShader(vertex_shader);
-    c.glDeleteShader(fragment_shader);
+    var shader = try Shader.init(allocator, "./src/shaders/vertex.glsl", "./src/shaders/fragment.glsl");
 
     // Set up vertex data (and buffer(s)) and attribute pointers
 
@@ -149,9 +110,11 @@ pub fn main() !void {
     c.glEnableVertexAttribArray(2);
 
     // Load and create a texture
-    const texture = try loadTextureFromFile("./src/assets/wall.jpg");
+    const texture = try loadTextureFromFile("./src/assets/awesomeface.png");
 
     //c.glPolygonMode(c.GL_FRONT_AND_BACK, c.GL_LINE);
+
+    shader.use();
 
     while (c.glfwWindowShouldClose(window) == c.GLFW_FALSE) {
         var width: c_int = undefined;
@@ -164,7 +127,7 @@ pub fn main() !void {
 
         c.glBindTexture(c.GL_TEXTURE_2D, texture);
 
-        c.glUseProgram(shader_program);
+        shader.use();
         c.glBindVertexArray(VAO);
         c.glDrawElements(c.GL_TRIANGLES, 6, c.GL_UNSIGNED_INT, null);
 
@@ -187,7 +150,7 @@ pub fn loadTextureFromFile(filePath: [*c]const u8) !c_uint {
     var channels: c_int = undefined;
 
     const data = c.stbi_load(filePath, &width, &height, &channels, 0);
-    c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGB, width, height, 0, c.GL_RGB, c.GL_UNSIGNED_BYTE, data);
+    c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGBA, width, height, 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, data);
     c.glGenerateMipmap(c.GL_TEXTURE_2D);
 
     return texture;
