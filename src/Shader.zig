@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const math = @import("zalgebra");
 const c = @cImport({
     @cInclude("glad/glad.h");
     @cInclude("GLFW/glfw3.h");
@@ -62,6 +63,12 @@ pub fn setInt(self: *Shader, name: [*c]const u8, value: c.GLint) void {
 pub fn setFloat(self: *Shader, name: [*c]const u8, value: c.GLfloat) void {
     const location = c.glGetUniformLocation(self.id, name);
     c.glUniform1f(location, value);
+}
+
+pub fn setMat4(self: *Shader, name: [*c]const u8, value: math.Mat4) void {
+    const location = c.glGetUniformLocation(self.id, name);
+    const value_ptr: [*c]const c.GLfloat = @ptrCast(value.getData());
+    c.glUniformMatrix4fv(location, 1, c.GL_FALSE, value_ptr);
 }
 
 fn read_shader_file(allocator: Allocator, path: []const u8) ![]const u8 {
