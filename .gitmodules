@@ -1,3 +1,0 @@
-[submodule "deps/ziglm"]
-	path = deps/ziglm
-	url = https://github.com/kshyr/ziglm.git

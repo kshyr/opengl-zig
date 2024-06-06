@@ -1,12 +1,11 @@
 const std = @import("std");
+const math = @import("zalgebra");
 const c = @cImport({
     @cInclude("glad/glad.h");
     @cInclude("GLFW/glfw3.h");
     @cInclude("stb/stb_image.h");
 });
-const glm = @import("ziglm");
 const Shader = @import("Shader.zig");
-
 const print = std.debug.print;
 
 fn gl_error_callback(err: c_int, description: [*c]const u8) callconv(.C) void {
@@ -135,7 +134,14 @@ pub fn main() !void {
         c.glActiveTexture(c.GL_TEXTURE1);
         c.glBindTexture(c.GL_TEXTURE_2D, texture2);
 
+        var transform = math.Mat4x4(f32).identity();
+        transform = transform.translate(math.Vec3.new(0.5, -0.5, 0.0));
+        transform = transform.rotate(@floatCast(c.glfwGetTime()), math.Vec3.new(0.0, 0.0, 1.0));
+
         shader.use();
+        const transformLoc = c.glGetUniformLocation(shader.id, "transform");
+        const transformPtr: *c.GLfloat = @ptrCast(&transform);
+        c.glUniformMatrix4fv(transformLoc, 1, c.GL_FALSE, transformPtr);
         c.glBindVertexArray(VAO);
         c.glDrawElements(c.GL_TRIANGLES, 6, c.GL_UNSIGNED_INT, null);
 

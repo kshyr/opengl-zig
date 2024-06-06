@@ -12,8 +12,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const ziglm = b.addModule("ziglm", .{ .root_source_file = .{ .path = "deps/ziglm/src/ziglm.zig" } });
-    exe.root_module.addImport("ziglm", ziglm);
+    const zalgebra = b.dependency("zalgebra", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("zalgebra", zalgebra.module("zalgebra"));
 
     exe.linkLibC();
     exe.addIncludePath(.{ .path = "deps" });

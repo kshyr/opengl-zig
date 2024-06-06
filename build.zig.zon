@@ -1,7 +1,10 @@
 .{
     .name = "opengl-zig",
     .version = "0.1.0",
-    .dependencies = .{},
+    .dependencies = .{ .zalgebra = .{
+        .url = "https://github.com/kooparse/zalgebra/archive/1ab7f25cd3f947289e98a617ae785607bbc5054e.tar.gz",
+        .hash = "1220665cd38b7e9625ddfe7cedde962586ceadf12ce8dd46acc5273c2d17fbf6afd7",
+    } },
     .paths = .{
         "src",
         "build.zig",
