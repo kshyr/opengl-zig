@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 const math = @import("zalgebra");
 const c = @cImport({
     @cInclude("glad/glad.h");
-    @cInclude("GLFW/glfw3.h");
 });
 const print = std.debug.print;
 
