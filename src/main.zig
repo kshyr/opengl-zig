@@ -2,14 +2,14 @@ const std = @import("std");
 const math = @import("zalgebra");
 const c = @cImport({
     @cInclude("glad/glad.h");
-    @cInclude("GLFW/glfw3.h");
     @cInclude("stb/stb_image.h");
 });
+const glfw = @import("mach-glfw");
 const Shader = @import("Shader.zig");
 const print = std.debug.print;
 
-fn gl_error_callback(err: c_int, description: [*c]const u8) callconv(.C) void {
-    std.log.err("GLFW error {d}: {s}", .{ err, description });
+fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
+    std.log.err("glfw: {}: {s}\n", .{ error_code, description });
 }
 
 fn gl_debug_callback(
@@ -34,35 +34,34 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-
-    if (c.glfwInit() == c.GLFW_FALSE) {
+    glfw.setErrorCallback(errorCallback);
+    if (!glfw.init(.{})) {
         std.log.err("Failed to initialize GLFW", .{});
         return error.Initialization;
     }
-    defer c.glfwTerminate();
+    defer glfw.terminate();
 
-    _ = c.glfwSetErrorCallback(gl_error_callback);
-
-    c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MAJOR, 3);
-    c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MINOR, 3);
-    c.glfwWindowHint(c.GLFW_OPENGL_PROFILE, c.GLFW_OPENGL_CORE_PROFILE);
+    const hints = glfw.Window.Hints{
+        .context_version_major = 3,
+        .context_version_minor = 3,
+        .opengl_profile = glfw.Window.Hints.OpenGLProfile.opengl_core_profile,
+    };
 
     //#ifdef __APPLE__
     //    c.glfwWindowHint(c.GLFW_OPENGL_FORWARD_COMPAT, c.GLFW_TRUE);
     //#endif
 
-    const window = c.glfwCreateWindow(800, 600, "Hello, World", null, null) orelse {
+    const window = glfw.Window.create(800, 600, "Hello, World", null, null, hints) orelse {
         std.log.err("Failed to create window", .{});
         return error.Initialization;
     };
 
-    defer c.glfwDestroyWindow(window);
+    defer window.destroy();
 
-    c.glfwMakeContextCurrent(window);
+    glfw.makeContextCurrent(window);
+    glfw.swapInterval(1);
 
-    c.glfwSwapInterval(1);
-
-    const loadproc: c.GLADloadproc = @ptrCast(&c.glfwGetProcAddress);
+    const loadproc: c.GLADloadproc = @ptrCast(&glfw.getProcAddress);
     if (c.gladLoadGLLoader(loadproc) == c.GL_FALSE) {
         std.log.err("Failed to load OpenGL", .{});
         return error.Initialization;
@@ -158,10 +157,10 @@ pub fn main() !void {
     shader.setInt("texture1", 0);
     shader.setInt("texture2", 1);
 
-    while (c.glfwWindowShouldClose(window) == c.GLFW_FALSE) {
-        var width: c_int = undefined;
-        var height: c_int = undefined;
-        c.glfwGetFramebufferSize(window, &width, &height);
+    while (!window.shouldClose()) {
+        const size = window.getFramebufferSize();
+        const width: c.GLsizei = @intCast(size.width);
+        const height: c.GLsizei = @intCast(size.height);
         c.glViewport(0, 0, width, height);
 
         c.glClearColor(0.2, 0.3, 0.3, 1.0);
@@ -174,7 +173,7 @@ pub fn main() !void {
 
         shader.use();
 
-        const time: f32 = @floatCast(c.glfwGetTime());
+        const time: f32 = @floatCast(glfw.getTime());
         var projection = math.Mat4.identity();
         var view = math.Mat4.identity();
         const aspect_ratio: f32 = 800 / 600;
@@ -199,8 +198,8 @@ pub fn main() !void {
             c.glDrawArrays(c.GL_TRIANGLES, 0, 36);
         }
 
-        c.glfwSwapBuffers(window);
-        c.glfwPollEvents();
+        window.swapBuffers();
+        glfw.pollEvents();
     }
 }
 fn cStringToSlice(cstr: [*c]const u8) []const u8 {
