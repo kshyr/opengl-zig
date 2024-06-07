@@ -118,7 +118,7 @@ pub fn main() !void {
         -0.5, 0.5,  0.5,  0.0, 0.0,
         -0.5, 0.5,  -0.5, 0.0, 1.0,
     };
-    const cube_positions = [_]math.Vec3{
+    var cube_positions = [_]math.Vec3{
         math.Vec3.new(0.0, 0.0, 0.0),
         math.Vec3.new(2.0, 5.0, -15.0),
         math.Vec3.new(-1.5, -2.2, -2.5),
@@ -157,11 +157,16 @@ pub fn main() !void {
     shader.setInt("texture1", 0);
     shader.setInt("texture2", 1);
 
+    var view = math.Mat4.identity();
+    var projection = math.Mat4.identity();
+
     while (!window.shouldClose()) {
         const size = window.getFramebufferSize();
         const width: c.GLsizei = @intCast(size.width);
         const height: c.GLsizei = @intCast(size.height);
         c.glViewport(0, 0, width, height);
+
+        processInput(window, &view);
 
         c.glClearColor(0.2, 0.3, 0.3, 1.0);
         c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
@@ -174,12 +179,9 @@ pub fn main() !void {
         shader.use();
 
         const time: f32 = @floatCast(glfw.getTime());
-        var projection = math.Mat4.identity();
-        var view = math.Mat4.identity();
         const aspect_ratio: f32 = 800 / 600;
         const projection_deg: f32 = 60.0;
         projection = math.perspective(projection_deg, aspect_ratio, 0.1, 100.0);
-        view = math.Mat4.translate(view, math.Vec3.new(1.0, 1.1, -5.0));
 
         shader.setMat4("projection", projection);
         shader.setMat4("view", view);
@@ -190,12 +192,13 @@ pub fn main() !void {
             model = math.Mat4.translate(model, position);
             const i_f: f32 = @floatFromInt(i);
             const angle: f32 = 100.0 * i_f * time;
-            print("i: {d}, angle: {d}\n", .{ i, angle });
             model = math.Mat4.rotate(model, math.toRadians(angle), math.Vec3.new(2000.0, 2000.0, 2000.0));
 
             shader.setMat4("model", model);
 
             c.glDrawArrays(c.GL_TRIANGLES, 0, 36);
+
+            cube_positions[i] = math.Vec3.add(position, math.Vec3.new(0.002, 0.002, 0));
         }
 
         window.swapBuffers();
@@ -203,8 +206,8 @@ pub fn main() !void {
     }
 }
 fn cStringToSlice(cstr: [*c]const u8) []const u8 {
-    const length = std.mem.len(cstr); // Get the length of the C string
-    return cstr[0..length]; // Create a slice from the pointer and the length
+    const length = std.mem.len(cstr);
+    return cstr[0..length];
 }
 
 const TextureLoadOptions = struct {
@@ -214,7 +217,6 @@ const TextureLoadOptions = struct {
 pub fn loadTextureFromFile(filePath: [*c]const u8, options: TextureLoadOptions) !c_uint {
     const file_path_slice = cStringToSlice(filePath);
     const formati = if (std.mem.endsWith(u8, file_path_slice, ".png")) c.GL_RGBA else c.GL_RGB;
-    print("formati: {d}\n", .{formati});
     const formatu: c_uint = @intCast(formati);
     var texture: c_uint = undefined;
     c.glGenTextures(1, &texture);
@@ -237,4 +239,33 @@ pub fn loadTextureFromFile(filePath: [*c]const u8, options: TextureLoadOptions) 
     c.glGenerateMipmap(c.GL_TEXTURE_2D);
 
     return texture;
+}
+
+fn processInput(window: glfw.Window, view: *math.Mat4) void {
+    const mouse_pos = window.getCursorPos();
+    const mouse_x: f32 = @floatCast(mouse_pos.xpos);
+    const mouse_y: f32 = @floatCast(mouse_pos.ypos);
+    print("Mouse position: ({d}, {d})\n", .{ mouse_x, mouse_y });
+
+    if (window.getKey(.w) == .press) {
+        view.* = math.Mat4.translate(view.*, math.Vec3.new(0.0, 0.0, 0.1));
+    }
+    if (window.getKey(.a) == .press) {
+        view.* = math.Mat4.translate(view.*, math.Vec3.new(0.1, 0.0, 0.0));
+    }
+    if (window.getKey(.s) == .press) {
+        view.* = math.Mat4.translate(view.*, math.Vec3.new(0.0, 0.0, -0.1));
+    }
+    if (window.getKey(.d) == .press) {
+        view.* = math.Mat4.translate(view.*, math.Vec3.new(-0.1, 0.0, 0.0));
+    }
+    if (window.getKey(.space) == .press) {
+        view.* = math.Mat4.translate(view.*, math.Vec3.new(0.0, -0.1, 0.0));
+    }
+    if (window.getKey(.left_shift) == .press) {
+        view.* = math.Mat4.translate(view.*, math.Vec3.new(0.0, 0.1, 0.0));
+    }
+    if (window.getKey(.escape) == .press) {
+        window.setShouldClose(true);
+    }
 }

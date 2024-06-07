@@ -4,7 +4,6 @@ const math = @import("zalgebra");
 const c = @cImport({
     @cInclude("glad/glad.h");
 });
-const print = std.debug.print;
 
 id: c.GLuint,
 
@@ -45,7 +44,6 @@ pub fn init(
 }
 
 pub fn use(self: *Shader) void {
-    std.debug.print("Using shader {d}\n", .{self.id});
     c.glUseProgram(self.id);
 }
 
