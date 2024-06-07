@@ -7,18 +7,22 @@ const c = @cImport({
 const Camera = @import("Camera.zig");
 const Shader = @import("Shader.zig");
 const Texture = @import("Texture.zig");
-
 const print = std.debug.print;
 
-const SCR_WIDTH = 800;
-const SCR_HEIGHT = 600;
+const SCR_WIDTH = 1920;
+const SCR_HEIGHT = 1080;
 
 var camera = Camera.new();
 var first_mouse = true;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    defer {
+        const check = gpa.deinit();
+        if (check == .leak) {
+            print("gpa leaked\n", .{});
+        }
+    }
     const allocator = gpa.allocator();
 
     if (!glfw.init(.{})) {
@@ -62,7 +66,7 @@ pub fn main() !void {
     c.glEnable(c.GL_DEPTH_TEST);
 
     var shader = try Shader.new(allocator, "./src/shaders/vertex.glsl", "./src/shaders/fragment.glsl");
-    const texture1 = try Texture.new("./src/assets/mario-brick.png", .{});
+    const texture1 = try Texture.new("./src/assets/wall.jpg", .{});
     const texture2 = try Texture.new("./src/assets/awesomeface.png", .{});
 
     // Set up vertex data (and buffer(s)) and attribute pointers
@@ -110,18 +114,9 @@ pub fn main() !void {
         -0.5, 0.5,  0.5,  0.0, 0.0,
         -0.5, 0.5,  -0.5, 0.0, 1.0,
     };
-    const cube_positions = [_]math.Vec3{
-        math.Vec3.new(0.0, 0.0, 0.0),
-        math.Vec3.new(2.0, 5.0, -15.0),
-        math.Vec3.new(-1.5, -2.2, -2.5),
-        math.Vec3.new(-3.8, -2.0, -12.3),
-        math.Vec3.new(2.4, -0.4, -3.5),
-        math.Vec3.new(-1.7, 3.0, -7.5),
-        math.Vec3.new(1.3, -2.0, -2.5),
-        math.Vec3.new(1.5, 2.0, -2.5),
-        math.Vec3.new(1.5, 0.2, -1.5),
-        math.Vec3.new(-1.3, 1.0, -1.5),
-    };
+
+    const num_cubes = 10000;
+    var cube_positions: [num_cubes]math.Vec3 = undefined;
 
     var VBO: u32 = undefined;
     var VAO: u32 = undefined;
@@ -140,7 +135,7 @@ pub fn main() !void {
     c.glVertexAttribPointer(1, 2, c.GL_FLOAT, c.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
     c.glEnableVertexAttribArray(1);
 
-    //c.glPolygonMode(c.GL_FRONT_AND_BACK, c.GL_LINE);
+    // c.glPolygonMode(c.GL_FRONT_AND_BACK, c.GL_LINE);
 
     shader.use();
     shader.setInt("texture1", 0);
@@ -148,6 +143,12 @@ pub fn main() !void {
 
     var delta_time: f32 = 0.0;
     var last_frame: f32 = 0.0;
+    window.setInputModeCursor(.disabled);
+    var rng = std.rand.DefaultPrng.init(0);
+    for (0..num_cubes) |i| {
+        const position = math.Vec3.new(rng.random().float(f32) * 200.0, rng.random().float(f32) * 200.0, rng.random().float(f32) * 200.0);
+        cube_positions[i] = position;
+    }
 
     while (!window.shouldClose()) {
         const current_frame: f32 = @floatCast(glfw.getTime());
@@ -155,8 +156,6 @@ pub fn main() !void {
         last_frame = current_frame;
 
         camera.update(delta_time);
-
-        window.setInputModeCursor(.captured);
 
         processInput(window);
 
@@ -192,11 +191,6 @@ pub fn main() !void {
 }
 
 fn processInput(window: glfw.Window) void {
-    const mouse_pos = window.getCursorPos();
-    const mouse_x: f32 = @floatCast(mouse_pos.xpos);
-    const mouse_y: f32 = @floatCast(mouse_pos.ypos);
-    print("Mouse position: ({d}, {d})\n", .{ mouse_x, mouse_y });
-
     if (window.getKey(.w) == .press) {
         camera.position = camera.position.add(camera.front.scale(camera.speed));
     }
@@ -217,27 +211,26 @@ fn processInput(window: glfw.Window) void {
 }
 
 fn cursorPosCallback(window: glfw.Window, xpos64: f64, ypos64: f64) void {
-    _ = window;
-    const xpos: f32 = @floatCast(xpos64);
-    const ypos: f32 = @floatCast(ypos64);
+    const x: f32 = @floatCast(xpos64);
+    const y: f32 = @floatCast(ypos64);
 
     if (first_mouse) {
-        camera.last_x = xpos;
-        camera.last_y = ypos;
+        camera.last_x = x;
+        camera.last_y = y;
         first_mouse = false;
     }
 
-    var xoffset: f32 = xpos - camera.last_x;
-    var yoffset: f32 = camera.last_y - ypos;
-    camera.last_x = xpos;
-    camera.last_y = ypos;
+    window.setCursorPos(0, 0);
+
+    camera.last_x += x;
+    camera.last_y += y;
+
+    print("xoffset: {d}, yoffset: {d}\n", .{ camera.last_x, camera.last_y });
 
     const sensitivity: f32 = 0.05;
-    xoffset *= sensitivity;
-    yoffset *= sensitivity;
 
-    camera.yaw += xoffset;
-    camera.pitch += yoffset;
+    camera.yaw += x * sensitivity;
+    camera.pitch += -y * sensitivity;
 
     if (camera.pitch > 89.0) {
         camera.pitch = 89.0;
@@ -258,8 +251,8 @@ fn cursorPosCallback(window: glfw.Window, xpos64: f64, ypos64: f64) void {
 }
 
 fn scrollCallback(window: glfw.Window, xoffset: f64, yoffset: f64) void {
-    _ = window;
-    _ = xoffset;
+    _ = window; // autofix
+    _ = xoffset; // autofix
     const scroll_sensitivity: f32 = 3.0;
     camera.fov -= @floatCast(yoffset * scroll_sensitivity);
     if (camera.fov < 1.0) {
@@ -275,7 +268,7 @@ fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
 }
 
 fn frameBufferSizeCallback(window: glfw.Window, width: u32, height: u32) void {
-    _ = window;
+    _ = window; // autofix
     const gl_width: c_int = @intCast(width);
     const gl_height: c_int = @intCast(height);
     c.glViewport(0, 0, gl_width, gl_height);

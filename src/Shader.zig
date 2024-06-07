@@ -14,8 +14,11 @@ pub fn new(
     vert_path: []const u8,
     frag_path: []const u8,
 ) !Shader {
-    const vertex_shader_source = try read_shader_file(allocator, vert_path);
-    const fragment_shader_source = try read_shader_file(allocator, frag_path);
+    const vertex_shader_source = try readShaderFile(allocator, vert_path);
+    defer allocator.free(vertex_shader_source);
+
+    const fragment_shader_source = try readShaderFile(allocator, frag_path);
+    defer allocator.free(fragment_shader_source);
 
     var vertex_shader: c.GLuint = undefined;
     var fragment_shader: c.GLuint = undefined;
@@ -68,7 +71,7 @@ pub fn setMat4(self: *Shader, name: [*c]const u8, value: math.Mat4) void {
     c.glUniformMatrix4fv(location, 1, c.GL_FALSE, value_ptr);
 }
 
-fn read_shader_file(allocator: Allocator, path: []const u8) ![]const u8 {
+fn readShaderFile(allocator: Allocator, path: []const u8) ![]const u8 {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
 
