@@ -1,40 +1,26 @@
 const std = @import("std");
 const math = @import("zalgebra");
+const glfw = @import("mach-glfw");
 const c = @cImport({
     @cInclude("glad/glad.h");
-    @cInclude("stb/stb_image.h");
 });
-const glfw = @import("mach-glfw");
+const Camera = @import("Camera.zig");
 const Shader = @import("Shader.zig");
+const Texture = @import("Texture.zig");
+
 const print = std.debug.print;
 
-fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
-    std.log.err("glfw: {}: {s}\n", .{ error_code, description });
-}
+const SCR_WIDTH = 800;
+const SCR_HEIGHT = 600;
 
-fn gl_debug_callback(
-    source: c.GLenum,
-    type_: c.GLenum,
-    id: c.GLuint,
-    severity: c.GLenum,
-    length: c.GLsizei,
-    message: [*c]const c.GLchar,
-    user_param: ?*const anyopaque,
-) callconv(.C) void {
-    _ = source;
-    _ = type_;
-    _ = severity;
-    _ = length;
-    _ = user_param;
-
-    std.log.err("OpenGL error {d}: {s}", .{ id, message });
-}
+var camera = Camera.new();
+var first_mouse = true;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    glfw.setErrorCallback(errorCallback);
+
     if (!glfw.init(.{})) {
         std.log.err("Failed to initialize GLFW", .{});
         return error.Initialization;
@@ -51,13 +37,17 @@ pub fn main() !void {
     //    c.glfwWindowHint(c.GLFW_OPENGL_FORWARD_COMPAT, c.GLFW_TRUE);
     //#endif
 
-    const window = glfw.Window.create(800, 600, "Hello, World", null, null, hints) orelse {
+    const window: glfw.Window = glfw.Window.create(SCR_WIDTH, SCR_HEIGHT, "Hello, World", null, null, hints) orelse {
         std.log.err("Failed to create window", .{});
         return error.Initialization;
     };
 
     defer window.destroy();
 
+    glfw.setErrorCallback(errorCallback);
+    window.setFramebufferSizeCallback(frameBufferSizeCallback);
+    window.setCursorPosCallback(cursorPosCallback);
+    window.setScrollCallback(scrollCallback);
     glfw.makeContextCurrent(window);
     glfw.swapInterval(1);
 
@@ -67,11 +57,13 @@ pub fn main() !void {
         return error.Initialization;
     }
 
-    c.glDebugMessageCallback(gl_debug_callback, null);
+    c.glDebugMessageCallback(glDebugCallback, null);
     c.glEnable(c.GL_DEBUG_OUTPUT);
     c.glEnable(c.GL_DEPTH_TEST);
 
-    var shader = try Shader.init(allocator, "./src/shaders/vertex.glsl", "./src/shaders/fragment.glsl");
+    var shader = try Shader.new(allocator, "./src/shaders/vertex.glsl", "./src/shaders/fragment.glsl");
+    const texture1 = try Texture.new("./src/assets/mario-brick.png", .{});
+    const texture2 = try Texture.new("./src/assets/awesomeface.png", .{});
 
     // Set up vertex data (and buffer(s)) and attribute pointers
 
@@ -118,7 +110,7 @@ pub fn main() !void {
         -0.5, 0.5,  0.5,  0.0, 0.0,
         -0.5, 0.5,  -0.5, 0.0, 1.0,
     };
-    var cube_positions = [_]math.Vec3{
+    const cube_positions = [_]math.Vec3{
         math.Vec3.new(0.0, 0.0, 0.0),
         math.Vec3.new(2.0, 5.0, -15.0),
         math.Vec3.new(-1.5, -2.2, -2.5),
@@ -148,124 +140,161 @@ pub fn main() !void {
     c.glVertexAttribPointer(1, 2, c.GL_FLOAT, c.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
     c.glEnableVertexAttribArray(1);
 
-    const texture1 = try loadTextureFromFile("./src/assets/mario-brick.png", .{});
-    const texture2 = try loadTextureFromFile("./src/assets/awesomeface.png", .{});
-
     //c.glPolygonMode(c.GL_FRONT_AND_BACK, c.GL_LINE);
 
     shader.use();
     shader.setInt("texture1", 0);
     shader.setInt("texture2", 1);
 
-    var view = math.Mat4.identity();
-    var projection = math.Mat4.identity();
+    var delta_time: f32 = 0.0;
+    var last_frame: f32 = 0.0;
 
     while (!window.shouldClose()) {
-        const size = window.getFramebufferSize();
-        const width: c.GLsizei = @intCast(size.width);
-        const height: c.GLsizei = @intCast(size.height);
-        c.glViewport(0, 0, width, height);
+        const current_frame: f32 = @floatCast(glfw.getTime());
+        delta_time = current_frame - last_frame;
+        last_frame = current_frame;
 
-        processInput(window, &view);
+        camera.update(delta_time);
+
+        window.setInputModeCursor(.captured);
+
+        processInput(window);
 
         c.glClearColor(0.2, 0.3, 0.3, 1.0);
         c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
 
         c.glActiveTexture(c.GL_TEXTURE0);
-        c.glBindTexture(c.GL_TEXTURE_2D, texture1);
+        c.glBindTexture(c.GL_TEXTURE_2D, texture1.id);
         c.glActiveTexture(c.GL_TEXTURE1);
-        c.glBindTexture(c.GL_TEXTURE_2D, texture2);
+        c.glBindTexture(c.GL_TEXTURE_2D, texture2.id);
 
         shader.use();
 
-        const time: f32 = @floatCast(glfw.getTime());
-        const aspect_ratio: f32 = 800 / 600;
-        const projection_deg: f32 = 60.0;
-        projection = math.perspective(projection_deg, aspect_ratio, 0.1, 100.0);
-
-        shader.setMat4("projection", projection);
-        shader.setMat4("view", view);
+        shader.setMat4("projection", camera.projection);
+        shader.setMat4("view", camera.view);
 
         c.glBindVertexArray(VAO);
         for (cube_positions, 0..) |position, i| {
             var model = math.Mat4.identity();
             model = math.Mat4.translate(model, position);
             const i_f: f32 = @floatFromInt(i);
-            const angle: f32 = 100.0 * i_f * time;
+            const angle: f32 = 100.0 * i_f * delta_time;
             model = math.Mat4.rotate(model, math.toRadians(angle), math.Vec3.new(2000.0, 2000.0, 2000.0));
 
             shader.setMat4("model", model);
 
             c.glDrawArrays(c.GL_TRIANGLES, 0, 36);
-
-            cube_positions[i] = math.Vec3.add(position, math.Vec3.new(0.002, 0.002, 0));
         }
 
         window.swapBuffers();
         glfw.pollEvents();
     }
 }
-fn cStringToSlice(cstr: [*c]const u8) []const u8 {
-    const length = std.mem.len(cstr);
-    return cstr[0..length];
-}
 
-const TextureLoadOptions = struct {
-    v_flip: ?bool = false,
-};
-
-pub fn loadTextureFromFile(filePath: [*c]const u8, options: TextureLoadOptions) !c_uint {
-    const file_path_slice = cStringToSlice(filePath);
-    const formati = if (std.mem.endsWith(u8, file_path_slice, ".png")) c.GL_RGBA else c.GL_RGB;
-    const formatu: c_uint = @intCast(formati);
-    var texture: c_uint = undefined;
-    c.glGenTextures(1, &texture);
-    c.glBindTexture(c.GL_TEXTURE_2D, texture);
-    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_REPEAT);
-    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_REPEAT);
-    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR);
-    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_LINEAR);
-
-    var width: c_int = undefined;
-    var height: c_int = undefined;
-    var channels: c_int = undefined;
-
-    if (options.v_flip.?) {
-        c.stbi_set_flip_vertically_on_load(c.GL_TRUE);
-    }
-
-    const data = c.stbi_load(filePath, &width, &height, &channels, 0);
-    c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGB, width, height, 0, formatu, c.GL_UNSIGNED_BYTE, data);
-    c.glGenerateMipmap(c.GL_TEXTURE_2D);
-
-    return texture;
-}
-
-fn processInput(window: glfw.Window, view: *math.Mat4) void {
+fn processInput(window: glfw.Window) void {
     const mouse_pos = window.getCursorPos();
     const mouse_x: f32 = @floatCast(mouse_pos.xpos);
     const mouse_y: f32 = @floatCast(mouse_pos.ypos);
     print("Mouse position: ({d}, {d})\n", .{ mouse_x, mouse_y });
 
     if (window.getKey(.w) == .press) {
-        view.* = math.Mat4.translate(view.*, math.Vec3.new(0.0, 0.0, 0.1));
-    }
-    if (window.getKey(.a) == .press) {
-        view.* = math.Mat4.translate(view.*, math.Vec3.new(0.1, 0.0, 0.0));
+        camera.position = camera.position.add(camera.front.scale(camera.speed));
     }
     if (window.getKey(.s) == .press) {
-        view.* = math.Mat4.translate(view.*, math.Vec3.new(0.0, 0.0, -0.1));
+        camera.position = camera.position.sub(camera.front.scale(camera.speed));
+    }
+    if (window.getKey(.a) == .press) {
+        camera.position = camera.position.sub(math.Vec3.norm(math.Vec3.cross(camera.front, camera.up)).scale(camera.speed));
     }
     if (window.getKey(.d) == .press) {
-        view.* = math.Mat4.translate(view.*, math.Vec3.new(-0.1, 0.0, 0.0));
+        camera.position = camera.position.add(math.Vec3.norm(math.Vec3.cross(camera.front, camera.up)).scale(camera.speed));
     }
-    if (window.getKey(.space) == .press) {
-        view.* = math.Mat4.translate(view.*, math.Vec3.new(0.0, -0.1, 0.0));
-    }
-    if (window.getKey(.left_shift) == .press) {
-        view.* = math.Mat4.translate(view.*, math.Vec3.new(0.0, 0.1, 0.0));
-    }
+    if (window.getKey(.space) == .press) {}
+    if (window.getKey(.left_shift) == .press) {}
     if (window.getKey(.escape) == .press) {
         window.setShouldClose(true);
     }
+}
+
+fn cursorPosCallback(window: glfw.Window, xpos64: f64, ypos64: f64) void {
+    _ = window;
+    const xpos: f32 = @floatCast(xpos64);
+    const ypos: f32 = @floatCast(ypos64);
+
+    if (first_mouse) {
+        camera.last_x = xpos;
+        camera.last_y = ypos;
+        first_mouse = false;
+    }
+
+    var xoffset: f32 = xpos - camera.last_x;
+    var yoffset: f32 = camera.last_y - ypos;
+    camera.last_x = xpos;
+    camera.last_y = ypos;
+
+    const sensitivity: f32 = 0.05;
+    xoffset *= sensitivity;
+    yoffset *= sensitivity;
+
+    camera.yaw += xoffset;
+    camera.pitch += yoffset;
+
+    if (camera.pitch > 89.0) {
+        camera.pitch = 89.0;
+    }
+    if (camera.pitch < -89.0) {
+        camera.pitch = -89.0;
+    }
+
+    var front = math.Vec3.new(0.0, 0.0, 0.0);
+    const front_x_ptr = front.xMut();
+    const front_y_ptr = front.yMut();
+    const front_z_ptr = front.zMut();
+
+    front_x_ptr.* = std.math.cos(math.toRadians(camera.yaw)) * std.math.cos(math.toRadians(camera.pitch));
+    front_y_ptr.* = std.math.sin(math.toRadians(camera.pitch));
+    front_z_ptr.* = std.math.sin(math.toRadians(camera.yaw)) * std.math.cos(math.toRadians(camera.pitch));
+    camera.front = math.Vec3.norm(front);
+}
+
+fn scrollCallback(window: glfw.Window, xoffset: f64, yoffset: f64) void {
+    _ = window;
+    _ = xoffset;
+    const scroll_sensitivity: f32 = 3.0;
+    camera.fov -= @floatCast(yoffset * scroll_sensitivity);
+    if (camera.fov < 1.0) {
+        camera.fov = 1.0;
+    }
+    if (camera.fov > 45.0) {
+        camera.fov = 45.0;
+    }
+}
+
+fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
+    std.log.err("glfw: {}: {s}\n", .{ error_code, description });
+}
+
+fn frameBufferSizeCallback(window: glfw.Window, width: u32, height: u32) void {
+    _ = window;
+    const gl_width: c_int = @intCast(width);
+    const gl_height: c_int = @intCast(height);
+    c.glViewport(0, 0, gl_width, gl_height);
+}
+
+fn glDebugCallback(
+    source: c.GLenum,
+    type_: c.GLenum,
+    id: c.GLuint,
+    severity: c.GLenum,
+    length: c.GLsizei,
+    message: [*c]const c.GLchar,
+    user_param: ?*const anyopaque,
+) callconv(.C) void {
+    _ = source;
+    _ = type_;
+    _ = severity;
+    _ = length;
+    _ = user_param;
+
+    std.log.err("OpenGL error {d}: {s}", .{ id, message });
 }

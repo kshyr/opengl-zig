@@ -1,15 +1,15 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const math = @import("zalgebra");
 const c = @cImport({
     @cInclude("glad/glad.h");
 });
 
-id: c.GLuint,
+const Allocator = std.mem.Allocator;
 
 const Shader = @This();
+id: c.GLuint,
 
-pub fn init(
+pub fn new(
     allocator: Allocator,
     vert_path: []const u8,
     frag_path: []const u8,
