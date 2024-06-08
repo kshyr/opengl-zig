@@ -9,11 +9,18 @@ const Shader = @import("Shader.zig");
 const Texture = @import("Texture.zig");
 const print = std.debug.print;
 
-const SCR_WIDTH = 1920;
-const SCR_HEIGHT = 1080;
+const SCR_WIDTH: f32 = 800;
+const SCR_HEIGHT: f32 = 600;
+const ASPECT_RATIO: f32 = SCR_WIDTH / SCR_HEIGHT;
 
 var camera = Camera.new();
+var last_x: f32 = SCR_WIDTH / 2.0;
+var last_y: f32 = SCR_HEIGHT / 2.0;
 var first_mouse = true;
+var delta_time: f32 = 0.0;
+var last_frame: f32 = 0.0;
+
+var light_pos = math.Vec3.new(3.2, 1.0, 2.0);
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -32,8 +39,8 @@ pub fn main() !void {
     defer glfw.terminate();
 
     const hints = glfw.Window.Hints{
-        .context_version_major = 3,
-        .context_version_minor = 3,
+        .context_version_major = 4,
+        .context_version_minor = 6,
         .opengl_profile = glfw.Window.Hints.OpenGLProfile.opengl_core_profile,
     };
 
@@ -54,6 +61,7 @@ pub fn main() !void {
     window.setScrollCallback(scrollCallback);
     glfw.makeContextCurrent(window);
     glfw.swapInterval(1);
+    window.setInputModeCursor(.disabled);
 
     const loadproc: c.GLADloadproc = @ptrCast(&glfw.getProcAddress);
     if (c.gladLoadGLLoader(loadproc) == c.GL_FALSE) {
@@ -65,125 +73,166 @@ pub fn main() !void {
     c.glEnable(c.GL_DEBUG_OUTPUT);
     c.glEnable(c.GL_DEPTH_TEST);
 
-    var shader = try Shader.new(allocator, "./src/shaders/vertex.glsl", "./src/shaders/fragment.glsl");
+    var lighting_shader = try Shader.new(allocator, "./src/shaders/vertex.glsl", "./src/shaders/fragment.glsl");
+    var light_cube_shader = try Shader.new(allocator, "./src/shaders/light_cube_vertex.glsl", "./src/shaders/light_cube_fragment.glsl");
     const texture1 = try Texture.new("./src/assets/wall.jpg", .{});
-    const texture2 = try Texture.new("./src/assets/awesomeface.png", .{});
-
-    // Set up vertex data (and buffer(s)) and attribute pointers
+    _ = texture1; // autofix
 
     const vertices = [_]f32{
-        -0.5, -0.5, -0.5, 0.0, 0.0,
-        0.5,  -0.5, -0.5, 1.0, 0.0,
-        0.5,  0.5,  -0.5, 1.0, 1.0,
-        0.5,  0.5,  -0.5, 1.0, 1.0,
-        -0.5, 0.5,  -0.5, 0.0, 1.0,
-        -0.5, -0.5, -0.5, 0.0, 0.0,
+        -0.5, -0.5, -0.5, 0.0,  0.0,  -1.0,
+        0.5,  -0.5, -0.5, 0.0,  0.0,  -1.0,
+        0.5,  0.5,  -0.5, 0.0,  0.0,  -1.0,
+        0.5,  0.5,  -0.5, 0.0,  0.0,  -1.0,
+        -0.5, 0.5,  -0.5, 0.0,  0.0,  -1.0,
+        -0.5, -0.5, -0.5, 0.0,  0.0,  -1.0,
 
-        -0.5, -0.5, 0.5,  0.0, 0.0,
-        0.5,  -0.5, 0.5,  1.0, 0.0,
-        0.5,  0.5,  0.5,  1.0, 1.0,
-        0.5,  0.5,  0.5,  1.0, 1.0,
-        -0.5, 0.5,  0.5,  0.0, 1.0,
-        -0.5, -0.5, 0.5,  0.0, 0.0,
+        -0.5, -0.5, 0.5,  0.0,  0.0,  1.0,
+        0.5,  -0.5, 0.5,  0.0,  0.0,  1.0,
+        0.5,  0.5,  0.5,  0.0,  0.0,  1.0,
+        0.5,  0.5,  0.5,  0.0,  0.0,  1.0,
+        -0.5, 0.5,  0.5,  0.0,  0.0,  1.0,
+        -0.5, -0.5, 0.5,  0.0,  0.0,  1.0,
 
-        -0.5, 0.5,  0.5,  1.0, 0.0,
-        -0.5, 0.5,  -0.5, 1.0, 1.0,
-        -0.5, -0.5, -0.5, 0.0, 1.0,
-        -0.5, -0.5, -0.5, 0.0, 1.0,
-        -0.5, -0.5, 0.5,  0.0, 0.0,
-        -0.5, 0.5,  0.5,  1.0, 0.0,
+        -0.5, 0.5,  0.5,  -1.0, 0.0,  0.0,
+        -0.5, 0.5,  -0.5, -1.0, 0.0,  0.0,
+        -0.5, -0.5, -0.5, -1.0, 0.0,  0.0,
+        -0.5, -0.5, -0.5, -1.0, 0.0,  0.0,
+        -0.5, -0.5, 0.5,  -1.0, 0.0,  0.0,
+        -0.5, 0.5,  0.5,  -1.0, 0.0,  0.0,
 
-        0.5,  0.5,  0.5,  1.0, 0.0,
-        0.5,  0.5,  -0.5, 1.0, 1.0,
-        0.5,  -0.5, -0.5, 0.0, 1.0,
-        0.5,  -0.5, -0.5, 0.0, 1.0,
-        0.5,  -0.5, 0.5,  0.0, 0.0,
-        0.5,  0.5,  0.5,  1.0, 0.0,
+        0.5,  0.5,  0.5,  1.0,  0.0,  0.0,
+        0.5,  0.5,  -0.5, 1.0,  0.0,  0.0,
+        0.5,  -0.5, -0.5, 1.0,  0.0,  0.0,
+        0.5,  -0.5, -0.5, 1.0,  0.0,  0.0,
+        0.5,  -0.5, 0.5,  1.0,  0.0,  0.0,
+        0.5,  0.5,  0.5,  1.0,  0.0,  0.0,
 
-        -0.5, -0.5, -0.5, 0.0, 1.0,
-        0.5,  -0.5, -0.5, 1.0, 1.0,
-        0.5,  -0.5, 0.5,  1.0, 0.0,
-        0.5,  -0.5, 0.5,  1.0, 0.0,
-        -0.5, -0.5, 0.5,  0.0, 0.0,
-        -0.5, -0.5, -0.5, 0.0, 1.0,
+        -0.5, -0.5, -0.5, 0.0,  -1.0, 0.0,
+        0.5,  -0.5, -0.5, 0.0,  -1.0, 0.0,
+        0.5,  -0.5, 0.5,  0.0,  -1.0, 0.0,
+        0.5,  -0.5, 0.5,  0.0,  -1.0, 0.0,
+        -0.5, -0.5, 0.5,  0.0,  -1.0, 0.0,
+        -0.5, -0.5, -0.5, 0.0,  -1.0, 0.0,
 
-        -0.5, 0.5,  -0.5, 0.0, 1.0,
-        0.5,  0.5,  -0.5, 1.0, 1.0,
-        0.5,  0.5,  0.5,  1.0, 0.0,
-        0.5,  0.5,  0.5,  1.0, 0.0,
-        -0.5, 0.5,  0.5,  0.0, 0.0,
-        -0.5, 0.5,  -0.5, 0.0, 1.0,
+        -0.5, 0.5,  -0.5, 0.0,  1.0,  0.0,
+        0.5,  0.5,  -0.5, 0.0,  1.0,  0.0,
+        0.5,  0.5,  0.5,  0.0,  1.0,  0.0,
+        0.5,  0.5,  0.5,  0.0,  1.0,  0.0,
+        -0.5, 0.5,  0.5,  0.0,  1.0,  0.0,
+        -0.5, 0.5,  -0.5, 0.0,  1.0,  0.0,
+        -3.5, -1.5, -0.5, 0.0,  0.0,  -1.0,
+        -3.5, -1.5, -1.5, 0.0,  0.0,  -1.0,
+        -3.5, -1.5, -1.5, 0.0,  0.0,  -1.0,
+        -3.5, -1.5, -1.5, 0.0,  0.0,  -1.0,
+        -3.5, -1.5, -1.5, 0.0,  0.0,  -1.0,
+        -3.5, -1.5, -1.5, 0.0,  0.0,  -1.0,
+
+        -3.5, -1.5, 0.4,  0.0,  0.0,  1.0,
+        -3.5, -1.5, 0.4,  0.0,  0.0,  1.0,
+        -3.5, -1.5, 0.4,  0.0,  0.0,  1.0,
+        -3.5, -1.5, 0.4,  0.0,  0.0,  1.0,
+        -3.5, -1.5, 0.4,  0.0,  0.0,  1.0,
+        -3.5, -1.5, 0.4,  0.0,  0.0,  1.0,
+
+        -3.5, -1.5, 0.4,  -1.0, 0.0,  0.0,
+        -3.5, -1.5, -1.5, -1.0, 0.0,  0.0,
+        -3.5, -1.5, -1.5, -1.0, 0.0,  0.0,
+        -3.5, -1.5, -1.5, -1.0, 0.0,  0.0,
+        -3.5, -1.5, 0.4,  -1.0, 0.0,  0.0,
+        -3.5, -1.5, 0.4,  -1.0, 0.0,  0.0,
+
+        -3.5, -1.5, 0.4,  1.0,  0.0,  0.0,
+        -3.5, -1.5, -1.5, 1.0,  0.0,  0.0,
+        -3.5, -1.5, -1.5, 1.0,  0.0,  0.0,
+        -3.5, -1.5, -1.5, 1.0,  0.0,  0.0,
+        -3.5, -1.5, 0.4,  1.0,  0.0,  0.0,
+        -3.5, -1.5, 0.4,  1.0,  0.0,  0.0,
+
+        -3.5, -1.5, -1.5, 0.0,  -1.0, 0.0,
+        -3.5, -1.5, -1.5, 0.0,  -1.0, 0.0,
+        -3.5, -1.5, 0.4,  0.0,  -1.0, 0.0,
+        -3.5, -1.5, 0.4,  0.0,  -1.0, 0.0,
+        -3.5, -1.5, 0.4,  0.0,  -1.0, 0.0,
+        -3.5, -1.5, -1.5, 0.0,  -1.0, 0.0,
+
+        -3.5, -1.5, -1.5, 0.0,  1.0,  0.0,
+        -3.5, -1.5, -1.5, 0.0,  1.0,  0.0,
+        -3.5, -1.5, 0.4,  0.0,  1.0,  0.0,
+        -3.5, -1.5, 0.4,  0.0,  1.0,  0.0,
+        -3.5, -1.5, 0.4,  0.0,  1.0,  0.0,
+        -3.5, -1.5, -1.5, 0.0,  1.0,  0.0,
     };
 
-    const num_cubes = 10000;
-    var cube_positions: [num_cubes]math.Vec3 = undefined;
+    var vbo: u32 = undefined;
+    var cube_vao: u32 = undefined;
 
-    var VBO: u32 = undefined;
-    var VAO: u32 = undefined;
+    c.glGenVertexArrays(1, &cube_vao);
+    c.glGenBuffers(1, &vbo);
 
-    c.glGenVertexArrays(1, &VAO);
-    c.glGenBuffers(1, &VBO);
-
-    c.glBindVertexArray(VAO);
-
-    c.glBindBuffer(c.GL_ARRAY_BUFFER, VBO);
+    c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
     c.glBufferData(c.GL_ARRAY_BUFFER, @sizeOf(@TypeOf(vertices)), &vertices, c.GL_STATIC_DRAW);
 
-    c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(0));
+    c.glBindVertexArray(cube_vao);
+
+    c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
     c.glEnableVertexAttribArray(0);
 
-    c.glVertexAttribPointer(1, 2, c.GL_FLOAT, c.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
+    c.glVertexAttribPointer(1, 3, c.GL_FLOAT, c.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
     c.glEnableVertexAttribArray(1);
 
+    var light_cube_vao: u32 = undefined;
+    c.glGenVertexArrays(1, &light_cube_vao);
+    c.glBindVertexArray(light_cube_vao);
+
+    c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
+
+    c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
+    c.glEnableVertexAttribArray(0);
+
     // c.glPolygonMode(c.GL_FRONT_AND_BACK, c.GL_LINE);
-
-    shader.use();
-    shader.setInt("texture1", 0);
-    shader.setInt("texture2", 1);
-
-    var delta_time: f32 = 0.0;
-    var last_frame: f32 = 0.0;
-    window.setInputModeCursor(.disabled);
-    var rng = std.rand.DefaultPrng.init(0);
-    for (0..num_cubes) |i| {
-        const position = math.Vec3.new(rng.random().float(f32) * 200.0, rng.random().float(f32) * 200.0, rng.random().float(f32) * 200.0);
-        cube_positions[i] = position;
-    }
 
     while (!window.shouldClose()) {
         const current_frame: f32 = @floatCast(glfw.getTime());
         delta_time = current_frame - last_frame;
         last_frame = current_frame;
 
-        camera.update(delta_time);
-
         processInput(window);
 
-        c.glClearColor(0.2, 0.3, 0.3, 1.0);
+        c.glClearColor(0, 0, 0, 1.0);
         c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
 
-        c.glActiveTexture(c.GL_TEXTURE0);
-        c.glBindTexture(c.GL_TEXTURE_2D, texture1.id);
-        c.glActiveTexture(c.GL_TEXTURE1);
-        c.glBindTexture(c.GL_TEXTURE_2D, texture2.id);
+        lighting_shader.use();
+        lighting_shader.setVec3("objectColor", math.Vec3.new(1.0, 0.5, 0.31));
+        lighting_shader.setVec3("lightColor", math.Vec3.new(1.0, 1.0, 1.0));
+        lighting_shader.setVec3("lightPos", light_pos);
 
-        shader.use();
+        // make lightPos move in a circle
+        const light_pos_x = 1.0 + std.math.sin(current_frame) * 10.0;
+        const light_pos_y = 1.0 + std.math.sin(current_frame / 2.0) * 10.0;
 
-        shader.setMat4("projection", camera.projection);
-        shader.setMat4("view", camera.view);
+        light_pos = math.Vec3.new(light_pos_x, light_pos_y, 2.0);
 
-        c.glBindVertexArray(VAO);
-        for (cube_positions, 0..) |position, i| {
-            var model = math.Mat4.identity();
-            model = math.Mat4.translate(model, position);
-            const i_f: f32 = @floatFromInt(i);
-            const angle: f32 = 100.0 * i_f * delta_time;
-            model = math.Mat4.rotate(model, math.toRadians(angle), math.Vec3.new(2000.0, 2000.0, 2000.0));
+        const projection = math.Mat4.perspective(camera.zoom, ASPECT_RATIO, 0.001, 1000.0);
+        const view = camera.getViewMatrix();
+        lighting_shader.setMat4("projection", projection);
+        lighting_shader.setMat4("view", view);
 
-            shader.setMat4("model", model);
+        var model = math.Mat4.identity();
+        lighting_shader.setMat4("model", model);
 
-            c.glDrawArrays(c.GL_TRIANGLES, 0, 36);
-        }
+        c.glBindVertexArray(cube_vao);
+        c.glDrawArrays(c.GL_TRIANGLES, 0, 72);
+
+        light_cube_shader.use();
+        light_cube_shader.setMat4("projection", projection);
+        light_cube_shader.setMat4("view", view);
+        model = math.Mat4.identity();
+        model = math.Mat4.translate(model, light_pos);
+        model = math.Mat4.scale(model, math.Vec3.new(0.2, 0.2, 0.2));
+        light_cube_shader.setMat4("model", model);
+
+        c.glBindVertexArray(light_cube_vao);
+        c.glDrawArrays(c.GL_TRIANGLES, 0, 36);
 
         window.swapBuffers();
         glfw.pollEvents();
@@ -191,76 +240,54 @@ pub fn main() !void {
 }
 
 fn processInput(window: glfw.Window) void {
+    if (window.getKey(.escape) == .press or window.getKey(.q) == .press) {
+        window.setShouldClose(true);
+    }
+
     if (window.getKey(.w) == .press) {
-        camera.position = camera.position.add(camera.front.scale(camera.speed));
+        camera.handleKeyboard(.forward, delta_time);
     }
     if (window.getKey(.s) == .press) {
-        camera.position = camera.position.sub(camera.front.scale(camera.speed));
+        camera.handleKeyboard(.backward, delta_time);
     }
     if (window.getKey(.a) == .press) {
-        camera.position = camera.position.sub(math.Vec3.norm(math.Vec3.cross(camera.front, camera.up)).scale(camera.speed));
+        camera.handleKeyboard(.left, delta_time);
     }
     if (window.getKey(.d) == .press) {
-        camera.position = camera.position.add(math.Vec3.norm(math.Vec3.cross(camera.front, camera.up)).scale(camera.speed));
+        camera.handleKeyboard(.right, delta_time);
     }
-    if (window.getKey(.space) == .press) {}
-    if (window.getKey(.left_shift) == .press) {}
-    if (window.getKey(.escape) == .press) {
-        window.setShouldClose(true);
+    if (window.getKey(.space) == .press) {
+        camera.handleKeyboard(.up, delta_time);
+    }
+    if (window.getKey(.left_shift) == .press) {
+        camera.handleKeyboard(.down, delta_time);
     }
 }
 
 fn cursorPosCallback(window: glfw.Window, xpos64: f64, ypos64: f64) void {
-    const x: f32 = @floatCast(xpos64);
-    const y: f32 = @floatCast(ypos64);
+    _ = window; // autofix
+    const xpos: f32 = @floatCast(xpos64);
+    const ypos: f32 = @floatCast(ypos64);
 
     if (first_mouse) {
-        camera.last_x = x;
-        camera.last_y = y;
+        last_x = xpos;
+        last_y = ypos;
         first_mouse = false;
     }
 
-    window.setCursorPos(0, 0);
+    const xoffset = xpos - last_x;
+    const yoffset = last_y - ypos;
 
-    camera.last_x += x;
-    camera.last_y += y;
+    last_x = xpos;
+    last_y = ypos;
 
-    print("xoffset: {d}, yoffset: {d}\n", .{ camera.last_x, camera.last_y });
-
-    const sensitivity: f32 = 0.05;
-
-    camera.yaw += x * sensitivity;
-    camera.pitch += -y * sensitivity;
-
-    if (camera.pitch > 89.0) {
-        camera.pitch = 89.0;
-    }
-    if (camera.pitch < -89.0) {
-        camera.pitch = -89.0;
-    }
-
-    var front = math.Vec3.new(0.0, 0.0, 0.0);
-    const front_x_ptr = front.xMut();
-    const front_y_ptr = front.yMut();
-    const front_z_ptr = front.zMut();
-
-    front_x_ptr.* = std.math.cos(math.toRadians(camera.yaw)) * std.math.cos(math.toRadians(camera.pitch));
-    front_y_ptr.* = std.math.sin(math.toRadians(camera.pitch));
-    front_z_ptr.* = std.math.sin(math.toRadians(camera.yaw)) * std.math.cos(math.toRadians(camera.pitch));
-    camera.front = math.Vec3.norm(front);
+    camera.handleMouseMovement(xoffset, yoffset);
 }
 
 fn scrollCallback(window: glfw.Window, xoffset: f64, yoffset: f64) void {
     _ = window; // autofix
     _ = xoffset; // autofix
-    const scroll_sensitivity: f32 = 3.0;
-    camera.fov -= @floatCast(yoffset * scroll_sensitivity);
-    if (camera.fov < 1.0) {
-        camera.fov = 1.0;
-    }
-    if (camera.fov > 45.0) {
-        camera.fov = 45.0;
-    }
+    camera.handleMouseScroll(@floatCast(yoffset));
 }
 
 fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
@@ -269,9 +296,26 @@ fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
 
 fn frameBufferSizeCallback(window: glfw.Window, width: u32, height: u32) void {
     _ = window; // autofix
-    const gl_width: c_int = @intCast(width);
-    const gl_height: c_int = @intCast(height);
-    c.glViewport(0, 0, gl_width, gl_height);
+    var gl_width: f32 = @floatFromInt(width);
+    var gl_height: f32 = @floatFromInt(height);
+    const gl_target_height: f32 = gl_height * ASPECT_RATIO;
+    _ = gl_target_height; // autofix
+
+    if (gl_width == 0 or gl_height == 0) {
+        return;
+    }
+
+    if (gl_width <= gl_height * ASPECT_RATIO) {
+        gl_width = gl_height * ASPECT_RATIO;
+    } else {
+        std.debug.print("1gl_width: {d}, gl_height: {d}. {d}\n", .{ gl_width, gl_height, ASPECT_RATIO });
+        gl_height = @divTrunc(gl_width, ASPECT_RATIO);
+        std.debug.print("2gl_width: {d}, gl_height: {d}. {d}\n", .{ gl_width, gl_height, ASPECT_RATIO });
+    }
+
+    const gl_widthi: c_int = @intFromFloat(gl_width);
+    const gl_heighti: c_int = @intFromFloat(gl_height);
+    c.glViewport(0, 0, gl_widthi, gl_heighti);
 }
 
 fn glDebugCallback(
@@ -284,10 +328,9 @@ fn glDebugCallback(
     user_param: ?*const anyopaque,
 ) callconv(.C) void {
     _ = source;
-    _ = type_;
     _ = severity;
     _ = length;
     _ = user_param;
 
-    std.log.err("OpenGL error {d}: {s}", .{ id, message });
+    std.log.err("{any}... OpenGL error {d}: {s}", .{ type_, id, message });
 }
